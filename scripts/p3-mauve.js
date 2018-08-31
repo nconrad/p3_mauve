@@ -12,7 +12,7 @@
  *    nconrad
  *
  * Todo: Don't need to store alignment sequences in memory
- * 
+ *
  */
 
 const opts = require('commander');
@@ -35,7 +35,8 @@ const DEFAULT_ENDPOINT = 'https://www.patricbrc.org/api/';
 const streamOpts = {
   responseType: 'stream',
   headers: {
-    'accept': 'application/dna+fasta'
+    'accept': 'application/dna+fasta',
+    'authorization': process.env.KB_AUTH_TOKEN || ''
   }
 }
 
@@ -44,10 +45,8 @@ if (require.main === module) {
     .option('--jstring [value]', 'Pass job params (json) as string')
     .option('--jfile [value]', 'Pass job params (json) as file')
     .option('--sstring [value]', 'Server config (json) as string')
-    .option('-o, --output [value]', 'Where to save files/results')    
-   
+    .option('-o, --output [value]', 'Where to save files/results')
     .option('-t, --tmp-files', 'Use temp files for fastas')
-    .option('--token [value]', 'Token, if Data API is being used')
 
     .option('--seed-weight [value]', 'Mauve option: ' +
       'Use the specified seed weight for calculating initial anchors')
@@ -69,11 +68,11 @@ async function patricMauve(opts) {
     let jfile = await readFile(opts.jfile)
     params = JSON.parse(jfile);
     genomeIDs = params.genome_ids;
-  
+
   // if job description string
   } else if (opts.jstring) {
     params = JSON.parse(opts.jstring);
-    genomeIDs = params.genome_ids; 
+    genomeIDs = params.genome_ids;
 
   // otherwise, use --genome-ids
   } else {
@@ -81,11 +80,11 @@ async function patricMauve(opts) {
     genomeIDs = params.genomeIds.split(',');
   }
 
-  // get server config 
+  // get server config
   let endpoint;
   if (opts.sstring) {
     try {
-      let apiURL = JSON.parse(opts.sstring).data_api;  
+      let apiURL = JSON.parse(opts.sstring).data_api;
       endpoint = `${apiURL}/genome_sequence/?sort(-length)&limit(1000000000)`;
     } catch(e) {
       console.log('Error parsing server config (--sstring).');
@@ -106,8 +105,8 @@ async function patricMauve(opts) {
 
   console.log('Fetching genomes...')
   let fastaPaths = await getGenomes({
-    genomeIDs, 
-    useTmpFiles, 
+    genomeIDs,
+    useTmpFiles,
     outDir,
     endpoint
   });
@@ -119,7 +118,7 @@ async function patricMauve(opts) {
   } catch (e) {
     console.error('Error running Mauve:', error.message);
     console.error('Ending.');
-    process.exit(1);    
+    process.exit(1);
   }
 }
 
@@ -197,13 +196,13 @@ async function runMauve(paths, mauveOpts, outDir) {
       let path = xmfaPath.replace('.xmfa', '.json');
       console.log(`Writing Alignment JSON to ${path}...`)
       let alignment = await mauveParser(xmfaPath);
-      await writeFile(path, JSON.stringify(alignment, null, 4)); 
-      console.log('Done.');        
+      await writeFile(path, JSON.stringify(alignment, null, 4));
+      console.log('Done.');
     } catch (e) {
       console.error('Error writing alignment JSON:', error.message);
       console.error('Ending.');
-      process.exit(1);    
-    } 
+      process.exit(1);
+    }
   });
 
   return xmfaPath;
