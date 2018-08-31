@@ -39,7 +39,6 @@ const streamOpts = {
   }
 }
 
-
 if (require.main === module) {
   opts.option('-g, --genome-ids [value]', 'Genome IDs comma delimited')
     .option('--jstring [value]', 'Pass job params (json) as string')
@@ -87,7 +86,7 @@ async function patricMauve(opts) {
   if (opts.sstring) {
     try {
       let apiURL = JSON.parse(opts.sstring).data_api;  
-      endpoint = `${apiURL}/genome_sequence/?sort(+sequence_id)&limit(1000000000)`;
+      endpoint = `${apiURL}/genome_sequence/?sort(-length)&limit(1000000000)`;
     } catch(e) {
       console.log('Error parsing server config (--sstring).');
       process.exit(1);
@@ -138,7 +137,7 @@ async function getGenomes(params) {
       await axios.get(`${endpoint || DEFAULT_ENDPOINT}&eq(genome_id,${id})`, streamOpts)
         .then(res => {
 
-          // if not using tmp files, just write to provided utput directory
+          // if not using tmp files, just write to provided output directory
           if (!useTmpFiles) {
             let path = `${outDir}/${id}.fasta`;
             console.log(`Writing ${path}...`);
