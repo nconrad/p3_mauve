@@ -5,8 +5,8 @@
  *
  *  Ex:
  *
- *    node p3-mauve.js -g 204722.5,224914.11,262698.4,359391.4 -o test-data/
- *    node p3-mauve.js -g 520459.3,520461.7,568815.3 -t
+ *    ./p3-mauve.js -g 204722.5,224914.11,262698.4,359391.4 -o test-data/
+ *    ./p3-mauve.js -g 520459.3,520461.7,568815.3 -t
  *
  *  Author(s):
  *    nconrad
@@ -30,7 +30,7 @@ const readFile = util.promisify(fs.readFile);
 const writeFile = util.promisify(fs.writeFile);
 
 
-const DOWNLOAD_URL = `https://www.patricbrc.org/api/genome_sequence/?sort(+sequence_id)&limit(1000000000)`;
+const DEFAULT_ENDPOINT = 'https://www.patricbrc.org/api/';
 
 const streamOpts = {
   responseType: 'stream',
@@ -58,8 +58,7 @@ if (require.main === module) {
       'Probability of transitioning from the homologous to the unrelated state [0.000001]')
     .parse(process.argv)
 
-  patricMauve(opts)
-  console.log('Done.');
+  patricMauve(opts);
 }
 
 
@@ -83,6 +82,18 @@ async function patricMauve(opts) {
     genomeIDs = params.genomeIds.split(',');
   }
 
+  // get server config 
+  let endpoint;
+  if (opts.sstring) {
+    try {
+      let apiURL = JSON.parse(opts.sstring).data_api;  
+      endpoint = `${apiURL}/genome_sequence/?sort(+sequence_id)&limit(1000000000)`;
+    } catch(e) {
+      console.log('Error parsing server config (--sstring).');
+      process.exit(1);
+    }
+  }
+
   let useTmpFiles = opts.tmpFiles,   // use system scratch space
       outDir = opts.output;
 
@@ -95,7 +106,12 @@ async function patricMauve(opts) {
   };
 
   console.log('Fetching genomes...')
-  let fastaPaths = await getGenomes({genomeIDs, useTmpFiles, outDir});
+  let fastaPaths = await getGenomes({
+    genomeIDs, 
+    useTmpFiles, 
+    outDir,
+    endpoint
+  });
 
   console.log('Running Mauve...')
   let xmfaPath;
@@ -110,7 +126,7 @@ async function patricMauve(opts) {
 
 
 async function getGenomes(params) {
-  let {genomeIDs, useTmpFiles, outDir} = params;
+  let {genomeIDs, useTmpFiles, outDir, endpoint} = params;
   genomeIDs = Array.isArray(genomeIDs) ? genomeIDs : [genomeIDs];
 
   let paths = [];
@@ -119,7 +135,7 @@ async function getGenomes(params) {
   for (const id of genomeIDs) {
     console.log(`Fetching genome: ${id}`)
     try {
-      await axios.get(`${DOWNLOAD_URL}&eq(genome_id,${id})`, streamOpts)
+      await axios.get(`${endpoint || DEFAULT_ENDPOINT}&eq(genome_id,${id})`, streamOpts)
         .then(res => {
 
           // if not using tmp files, just write to provided utput directory
@@ -182,7 +198,8 @@ async function runMauve(paths, mauveOpts, outDir) {
       let path = xmfaPath.replace('.xmfa', '.json');
       console.log(`Writing Alignment JSON to ${path}...`)
       let alignment = await mauveParser(xmfaPath);
-      await writeFile(path, JSON.stringify(alignment, null, 4));   
+      await writeFile(path, JSON.stringify(alignment, null, 4)); 
+      console.log('Done.');        
     } catch (e) {
       console.error('Error writing alignment JSON:', error.message);
       console.error('Ending.');
