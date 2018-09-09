@@ -24,8 +24,6 @@ const { spawn } = require('child_process');
 const tmp = require('tmp-promise');
 const mauveParser = require('./mauve-parser');
 
-
-// const mkdir = util.promisify(fs.mkdir);
 const readFile = util.promisify(fs.readFile);
 const writeFile = util.promisify(fs.writeFile);
 
@@ -54,6 +52,7 @@ if (require.main === module) {
       'Probability of transitioning from the unrelated to the homologous state [0.0001]')
     .option('--hmm-p-go-unrelated [value]', 'Mauve option: ' +
       'Probability of transitioning from the homologous to the unrelated state [0.000001]')
+    .option('--recipe', 'Use progressiveMauve or mauveAligner algorithm (defaults to progressiveMauve)')
     .parse(process.argv)
 
   patricMauve(opts);
@@ -62,7 +61,6 @@ if (require.main === module) {
 
 async function patricMauve(opts) {
   let params, genomeIDs;
-
   // if job description file
   if (opts.jfile) {
     let jfile = await readFile(opts.jfile)
@@ -79,6 +77,8 @@ async function patricMauve(opts) {
     params = opts;
     genomeIDs = params.genomeIds.split(',');
   }
+
+  validateParams(params);
 
   // get server config
   let endpoint;
@@ -114,10 +114,18 @@ async function patricMauve(opts) {
   console.log('Running Mauve...')
   let xmfaPath;
   try {
-    xmfaPath = await runMauve(fastaPaths, mauveOpts, outDir);
+    xmfaPath = await runMauve(params.recipe, fastaPaths, mauveOpts, outDir);
   } catch (e) {
-    console.error('Error running Mauve:', error.message);
+    console.error('Error running Mauve:', e.message);
     console.error('Ending.');
+    process.exit(1);
+  }
+}
+
+
+function validateParams(p) {
+  if (p.recipe && !['progressiveMauve', 'mauveAligner'].includes(p.recipe)) {
+    console.error(`Invalid recipe: ${p.recipe}`);
     process.exit(1);
   }
 }
@@ -166,7 +174,7 @@ async function getGenomes(params) {
 }
 
 
-async function runMauve(paths, mauveOpts, outDir) {
+async function runMauve(recipe, paths, mauveOpts, outDir) {
   let opts = [];
   for (opt in mauveOpts) {
     let val = mauveOpts[opt];
@@ -177,9 +185,25 @@ async function runMauve(paths, mauveOpts, outDir) {
 
   let xmfaPath = `${outDir}/alignment.xmfa`;
 
+  let cmd;
+  if (!recipe || recipe === 'progressiveMauve') {
+    cmd = 'progressiveMauve';
+  } else if (recipe === 'mauveAligner') {
+    cmd = 'mauveAligner';
+  }
+
+  if (cmd === 'mauveAligner') {
+    let allPaths = [];
+    paths.forEach(path => {
+      allPaths.push(path);
+      allPaths.push(path + '.sml')
+    })
+    paths = allPaths;
+  }
+
   let params = [`--output=${xmfaPath}`, ...paths, ...opts];
-  console.log(`Running Mauve with params:  ${params}`);
-  const mauve = spawn('progressiveMauve', params);
+  console.log(`Running ${cmd} with params:  ${params.join('\n')}`);
+  const mauve = spawn(cmd, params);
 
   mauve.stdout.on('data', (data) => {
     console.log(`${data}`);
@@ -199,7 +223,7 @@ async function runMauve(paths, mauveOpts, outDir) {
       await writeFile(path, JSON.stringify(alignment, null, 4));
       console.log('Done.');
     } catch (e) {
-      console.error('Error writing alignment JSON:', error.message);
+      console.error('Error writing alignment JSON:', e.message);
       console.error('Ending.');
       process.exit(1);
     }
@@ -207,15 +231,3 @@ async function runMauve(paths, mauveOpts, outDir) {
 
   return xmfaPath;
 }
-
-
-/*
-async function createDir(path) {
-  try {
-    await mkdir(path);
-  } catch(e) {
-    if (e.code !== 'EEXIST')
-      console.log('e', e);
-  }
-}
-*/
