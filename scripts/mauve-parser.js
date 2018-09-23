@@ -66,7 +66,7 @@ function getGaps(sequence) {
     for (let i = 1; i <= sequence.length; i++) {
         let nt = sequence.charAt(i-1);
 
-        if (!['a','t', 'g', 'c', '-'].includes(nt.toLowerCase()) ) {
+        if (!['a','t', 'g', 'c', '-', 'n'].includes(nt.toLowerCase()) ) {
             console.error(`invalid char "${nt}" in sequence.`)
         }
 
