@@ -8,9 +8,9 @@
  * Licensed under the Apache 2 license.
  *
  * Modified to:
+ *  - fix bug where lcbs aren't reported if a single lcb has sequence of length 0
  *  - not depend on biojs-io-parser
  *  - include sequence description (name)
- *
  */
 
 /**
@@ -47,12 +47,11 @@ XmfaReader.prototype.parseLine = function(line) {
   var c = line.charAt(0);
   if (line.length === 0 || c === '='){
     // end of an lcb, push and reset
-    if(this.currentSeq.start !== 0 && this.currentSeq.end !== 0){
-      this.lcb.push(this.currentSeq);
-      if(Object.keys(this.currentSeq).length !== 0){
-        this.lcbs.push(this.lcb);
-      }
+    this.lcb.push(this.currentSeq);
+    if(Object.keys(this.currentSeq).length !== 0){
+      this.lcbs.push(this.lcb);
     }
+
     // Don't let LCB data persist
     this.lcb = [];
     // Don't let sequences persist beyond the end of an LCB
