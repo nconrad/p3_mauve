@@ -5,8 +5,12 @@
  *
  *  Ex:
  *
- *    ./p3-mauve.js -g 204722.5,224914.11,262698.4,359391.4 -o test-data/
- *    ./p3-mauve.js -g 520459.3,520461.7,568815.3 -t
+ *    ./p3-mauve.js -g 204722.5,224914.11,262698.4,359391.4 -o ../test-data/
+ *    ./p3-mauve.js -g 520459.3,520461.7,568815.3 -t  (use temp files)
+ *
+ *  With Auth:
+ *      export KB_AUTH_TOKEN="<auth_token>"
+ *      ./p3-mauve.js -g 1262932.43,1262932.44 -o ../test-data/
  *
  *  Author(s):
  *    nconrad
@@ -28,7 +32,7 @@ const readFile = util.promisify(fs.readFile);
 const writeFile = util.promisify(fs.writeFile);
 
 
-const DEFAULT_ENDPOINT = 'https://www.patricbrc.org/api/';
+const DEFAULT_ENDPOINT = 'https://p3.theseed.org/services/data_api/';
 
 const streamOpts = {
   responseType: 'stream',
@@ -44,6 +48,8 @@ if (require.main === module) {
     .option('--jfile [value]', 'Pass job params (json) as file')
     .option('--sstring [value]', 'Server config (json) as string')
     .option('-o, --output [value]', 'Where to save files/results')
+    .option('-s, --suffix [value]', 'Suffix to append to sequence file names')
+    .option('-n, --no-mauve', 'Just fetch data')
     .option('-t, --tmp-files', 'Use temp files for fastas')
 
     .option('--seed-weight [value]', 'Mauve option: ' +
@@ -84,17 +90,16 @@ async function patricMauve(opts) {
   let endpoint;
   if (opts.sstring) {
     try {
-      let apiURL = JSON.parse(opts.sstring).data_api;
-      endpoint = `${apiURL}/genome_sequence/?sort(-length)&limit(1000000000)`;
+      endpoint = JSON.parse(opts.sstring).data_api;
     } catch(e) {
       console.log('Error parsing server config (--sstring).');
       process.exit(1);
     }
   }
 
-  let useTmpFiles = opts.tmpFiles,   // use system scratch space
-      outDir = opts.output;
-
+  let useTmpFiles = opts.tmpFiles,   // use system scratch space?
+      outDir = opts.output,
+      suffix = opts.suffix;
 
   // mauve specific options
   let mauveOpts = {
@@ -105,16 +110,19 @@ async function patricMauve(opts) {
 
   console.log('Fetching genomes...')
   let fastaPaths = await getGenomes({
+    endpoint,
     genomeIDs,
     useTmpFiles,
     outDir,
-    endpoint
+    suffix
   });
+
+  if (!opts.mauve) return;
 
   console.log('Running Mauve...')
   let xmfaPath;
   try {
-    xmfaPath = await runMauve(params.recipe, fastaPaths, mauveOpts, outDir);
+    await runMauve(params.recipe, fastaPaths, mauveOpts, outDir);
   } catch (e) {
     console.error('Error running Mauve:', e.message);
     console.error('Ending.');
@@ -125,14 +133,20 @@ async function patricMauve(opts) {
 
 function validateParams(p) {
   if (p.recipe && !['progressiveMauve', 'mauveAligner'].includes(p.recipe)) {
-    console.error(`Invalid recipe: ${p.recipe}`);
+    console.error(`\nInvalid recipe: ${p.recipe}`);
+    process.exit(1);
+  }
+
+  if (p.genomeIds && !p.output) {
+    console.error(`\nMust specify output directory path.`);
+    opts.help();
     process.exit(1);
   }
 }
 
 
 async function getGenomes(params) {
-  let {genomeIDs, useTmpFiles, outDir, endpoint} = params;
+  let {endpoint, genomeIDs, outDir, suffix, useTmpFiles} = params;
   genomeIDs = Array.isArray(genomeIDs) ? genomeIDs : [genomeIDs];
 
   let paths = [];
@@ -141,12 +155,13 @@ async function getGenomes(params) {
   for (const id of genomeIDs) {
     console.log(`Fetching genome: ${id}`)
     try {
-      await axios.get(`${endpoint || DEFAULT_ENDPOINT}&eq(genome_id,${id})`, streamOpts)
+      let url = `${endpoint || DEFAULT_ENDPOINT}/genome_sequence/?eq(genome_id,${id})&sort(-length)&limit(1000000000)`;
+      await axios.get(url, streamOpts)
         .then(res => {
 
           // if not using tmp files, just write to provided output directory
           if (!useTmpFiles) {
-            let path = `${outDir}/${id}.fasta`;
+            let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `.fasta`;
             console.log(`Writing ${path}...`);
             res.data.pipe(fs.createWriteStream(path));
             paths.push(path)
@@ -163,8 +178,11 @@ async function getGenomes(params) {
             throw e ;
           })
         })
-    } catch(error) {
-      console.error('Error fetching genome from Data API:', error.message);
+    } catch(err) {
+      console.error(
+        'Error fetching genome from Data API:',
+        'message' in err ? err.message : err
+      );
       console.error('Ending.');
       process.exit(1);
     }
