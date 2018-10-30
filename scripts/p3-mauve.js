@@ -22,25 +22,24 @@
 const opts = require('commander');
 const fs = require('fs');
 const process = require('process');
-const axios = require('axios');
 const util = require('util');
 const { spawn } = require('child_process');
-const tmp = require('tmp-promise');
 const mauveParser = require('./mauve-parser');
+
+const utils = require('./utils')
 
 const readFile = util.promisify(fs.readFile);
 const writeFile = util.promisify(fs.writeFile);
 
+const spawnPromise = async (cmd, args)  => {
+  return new Promise(async (resolve, reject) => {
+      const process = spawn(cmd, args);
+      process.on('data', data => resolve(data));
+      process.on('error', err => reject(err));
+      process.on('close', code => resolve(code));
+  });
+};
 
-const DEFAULT_ENDPOINT = 'https://p3.theseed.org/services/data_api/';
-
-const streamOpts = {
-  responseType: 'stream',
-  headers: {
-    'accept': 'application/dna+fasta',
-    'authorization': process.env.KB_AUTH_TOKEN || ''
-  }
-}
 
 if (require.main === module) {
   opts.option('-g, --genome-ids [value]', 'Genome IDs comma delimited')
@@ -86,19 +85,7 @@ async function patricMauve(opts) {
 
   validateParams(params);
 
-  // get server config
-  let endpoint;
-  if (opts.sstring) {
-    try {
-      endpoint = JSON.parse(opts.sstring).data_api;
-    } catch(e) {
-      console.log('Error parsing server config (--sstring).');
-      process.exit(1);
-    }
-  }
-
-  let useTmpFiles = opts.tmpFiles,   // use system scratch space?
-      outDir = opts.output,
+  let outDir = opts.output,
       suffix = opts.suffix;
 
   // mauve specific options
@@ -108,21 +95,20 @@ async function patricMauve(opts) {
     'seed-weight': params.seedWeight
   };
 
-  console.log('Fetching genomes...')
-  let fastaPaths = await getGenomes({
-    endpoint,
-    genomeIDs,
-    useTmpFiles,
-    outDir,
-    suffix
-  });
+  console.log('fetching sequence info...')
+  await utils.getSequences({genomeIDs, outDir})
+  console.log('fetching feature info...')
+  await utils.getFeatures({genomeIDs, outDir})
+
+
+  console.log('genomeIDs', genomeIDs[0])
+  let paths = await getGBKs({genomeIDs, outDir, suffix});
 
   if (!opts.mauve) return;
 
   console.log('Running Mauve...')
-  let xmfaPath;
   try {
-    await runMauve(params.recipe, fastaPaths, mauveOpts, outDir);
+    await runMauve(params.recipe, paths, mauveOpts, outDir);
   } catch (e) {
     console.error('Error running Mauve:', e.message);
     console.error('Ending.');
@@ -142,53 +128,6 @@ function validateParams(p) {
     opts.help();
     process.exit(1);
   }
-}
-
-
-async function getGenomes(params) {
-  let {endpoint, genomeIDs, outDir, suffix, useTmpFiles} = params;
-  genomeIDs = Array.isArray(genomeIDs) ? genomeIDs : [genomeIDs];
-
-  let paths = [];
-
-  // for each id, fetch fasta, store in tmp directory (unless useTmpFiles=false)
-  for (const id of genomeIDs) {
-    console.log(`Fetching genome: ${id}`)
-    try {
-      let url = `${endpoint || DEFAULT_ENDPOINT}/genome_sequence/?eq(genome_id,${id})&sort(-length)&limit(1000000000)`;
-      await axios.get(url, streamOpts)
-        .then(res => {
-
-          // if not using tmp files, just write to provided output directory
-          if (!useTmpFiles) {
-            let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `.fasta`;
-            console.log(`Writing ${path}...`);
-            res.data.pipe(fs.createWriteStream(path));
-            paths.push(path)
-            return;
-          }
-
-          // otherwise create tmp file in system tmpdir and stream to it
-          return tmp.file({postfix: `-${id}.fasta`}).then(function(obj) {
-            let path = obj.path;
-            console.log(`Writing ${path}...`);
-            res.data.pipe(fs.createWriteStream(path));
-            paths.push(path)
-          }).catch(e => {
-            throw e ;
-          })
-        })
-    } catch(err) {
-      console.error(
-        'Error fetching genome from Data API:',
-        'message' in err ? err.message : err
-      );
-      console.error('Ending.');
-      process.exit(1);
-    }
-  }
-
-  return paths;
 }
 
 
@@ -248,4 +187,35 @@ async function runMauve(recipe, paths, mauveOpts, outDir) {
   });
 
   return xmfaPath;
+}
+
+
+async function getGBKs({genomeIDs, outDir, suffix}) {
+  let paths = [];
+  for (genomeID of genomeIDs) {
+    let path = await getGBK({genomeID, outDir, suffix});
+    paths.push(path);
+  }
+  return paths;
+}
+
+async function getGBK({genomeID, outDir, suffix}) {
+  console.log(`Fetching GTO for ${genomeID}...`);
+  try {
+    await spawnPromise('p3-gto', [genomeID, '-o', outDir]);
+  } catch (e) {
+    console.error('Error fetching GTO.', e);
+  }
+
+  console.log(`Creating .gbk file for ${genomeID}...`);
+  let gbkPath;
+  try {
+    gbkPath = `${outDir}/${genomeID}${suffix ? `.${suffix}` : ''}.gbk`;
+    await spawnPromise('rast-export-genome',
+      ['-i', `${outDir}/${genomeID}.gto`, '-o', gbkPath, 'genbank']);
+  } catch (e) {
+    console.error('Error exporting to GBK.', e);
+  }
+
+  return gbkPath;
 }
