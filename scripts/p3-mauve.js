@@ -6,7 +6,7 @@
  *  Ex:
  *
  *    ./p3-mauve.js -g 204722.5,224914.11,262698.4,359391.4 -o ../test-data/
- *    ./p3-mauve.js -g 520459.3,520461.7,568815.3 -t  (use temp files)
+ *    ./p3-mauve.js -g 520459.3,520461.7,568815.3
  *
  *  With Auth:
  *      export KB_AUTH_TOKEN="<auth_token>"
@@ -26,20 +26,10 @@ const util = require('util');
 const { spawn } = require('child_process');
 const mauveParser = require('./mauve-parser');
 
-const utils = require('./utils')
+const utils = require('./utils');
 
 const readFile = util.promisify(fs.readFile);
 const writeFile = util.promisify(fs.writeFile);
-
-const spawnPromise = async (cmd, args)  => {
-  return new Promise(async (resolve, reject) => {
-      const process = spawn(cmd, args);
-      process.on('data', data => resolve(data));
-      process.on('error', err => reject(err));
-      process.on('close', code => resolve(code));
-  });
-};
-
 
 if (require.main === module) {
   opts.option('-g, --genome-ids [value]', 'Genome IDs comma delimited')
@@ -49,7 +39,6 @@ if (require.main === module) {
     .option('-o, --output [value]', 'Where to save files/results')
     .option('-s, --suffix [value]', 'Suffix to append to sequence file names')
     .option('-n, --no-mauve', 'Just fetch data')
-    .option('-t, --tmp-files', 'Use temp files for fastas')
 
     .option('--seed-weight [value]', 'Mauve option: ' +
       'Use the specified seed weight for calculating initial anchors')
@@ -85,6 +74,17 @@ async function patricMauve(opts) {
 
   validateParams(params);
 
+  // get server config
+  let endpoint;
+  if (opts.sstring) {
+    try {
+      endpoint = JSON.parse(opts.sstring).data_api;
+    } catch(e) {
+      console.log('Error parsing server config (--sstring).');
+      process.exit(1);
+    }
+  }
+
   let outDir = opts.output,
       suffix = opts.suffix;
 
@@ -95,14 +95,13 @@ async function patricMauve(opts) {
     'seed-weight': params.seedWeight
   };
 
-  console.log('fetching sequence info...')
-  await utils.getSequences({genomeIDs, outDir})
-  console.log('fetching feature info...')
-  await utils.getFeatures({genomeIDs, outDir})
-
-
-  console.log('genomeIDs', genomeIDs[0])
-  let paths = await getGBKs({genomeIDs, outDir, suffix});
+  console.log('Fetching genomes...')
+  let paths = await utils.getGenomeFastas({
+    endpoint,
+    genomeIDs,
+    outDir,
+    suffix
+  });
 
   if (!opts.mauve) return;
 
@@ -190,32 +189,3 @@ async function runMauve(recipe, paths, mauveOpts, outDir) {
 }
 
 
-async function getGBKs({genomeIDs, outDir, suffix}) {
-  let paths = [];
-  for (genomeID of genomeIDs) {
-    let path = await getGBK({genomeID, outDir, suffix});
-    paths.push(path);
-  }
-  return paths;
-}
-
-async function getGBK({genomeID, outDir, suffix}) {
-  console.log(`Fetching GTO for ${genomeID}...`);
-  try {
-    await spawnPromise('p3-gto', [genomeID, '-o', outDir]);
-  } catch (e) {
-    console.error('Error fetching GTO.', e);
-  }
-
-  console.log(`Creating .gbk file for ${genomeID}...`);
-  let gbkPath;
-  try {
-    gbkPath = `${outDir}/${genomeID}${suffix ? `.${suffix}` : ''}.gbk`;
-    await spawnPromise('rast-export-genome',
-      ['-i', `${outDir}/${genomeID}.gto`, '-o', gbkPath, 'genbank']);
-  } catch (e) {
-    console.error('Error exporting to GBK.', e);
-  }
-
-  return gbkPath;
-}

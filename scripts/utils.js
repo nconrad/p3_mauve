@@ -1,25 +1,27 @@
 
 const axios = require('axios');
 const fs = require('fs');
-
+const process = require('process');
 
 const DEFAULT_ENDPOINT = 'https://p3.theseed.org/services/data_api';
 
-const streamOpts = {
+const fastaOpts = {
   responseType: 'stream',
   headers: {
-//    'accept': 'application/json',
+    'accept': 'application/dna+fasta',
     'authorization': process.env.KB_AUTH_TOKEN || ''
   }
 }
 
-const selectList = [
-  "topology", "gi", "accession", "length",
-  "sequence_id", "gc_content", "chromosome", "owner",
-  "sequence_type", "chromosome", "description"
-]
+const streamOpts = {
+  responseType: 'stream',
+  headers: {
+    'accept': 'application/json',
+    'authorization': process.env.KB_AUTH_TOKEN || ''
+  }
+}
 
-async function getFeatures({endpoint, genomeIDs, outDir}) {
+async function getFeatureMeta({endpoint, genomeIDs, outDir}) {
   genomeIDs = Array.isArray(genomeIDs) ? genomeIDs : [genomeIDs];
 
   let paths = [];
@@ -50,9 +52,13 @@ async function getFeatures({endpoint, genomeIDs, outDir}) {
   return paths;
 }
 
+const contigMetaList = [
+  "topology", "gi", "accession", "length",
+  "sequence_id", "gc_content", "chromosome", "owner",
+  "sequence_type", "chromosome", "description"
+]
 
-
-async function getSequences({endpoint, genomeIDs, outDir, suffix}) {
+async function getContigMeta({endpoint, genomeIDs, outDir, suffix}) {
   genomeIDs = Array.isArray(genomeIDs) ? genomeIDs : [genomeIDs];
 
   let paths = [];
@@ -61,7 +67,7 @@ async function getSequences({endpoint, genomeIDs, outDir, suffix}) {
     console.log(`Fetching genome: ${id}`)
     try {
       let url = `${endpoint || DEFAULT_ENDPOINT}/genome_sequence/` +
-        `?eq(genome_id,${id})&select(${selectList.join(',')})&sort(-length)&limit(1000000000)`;
+        `?eq(genome_id,${id})&select(${contigMetaList.join(',')})&sort(-length)&limit(1000000000)`;
       await axios.get(url, streamOpts)
         .then(res => {
           let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `-sequences.json`;
@@ -84,8 +90,74 @@ async function getSequences({endpoint, genomeIDs, outDir, suffix}) {
 }
 
 
+async function getGBKs({genomeIDs, outDir, suffix}) {
+  let paths = [];
+  for (genomeID of genomeIDs) {
+    let path = await getGBK({genomeID, outDir, suffix});
+    paths.push(path);
+  }
+  return paths;
+}
+
+
+async function getGBK({genomeID, outDir, suffix}) {
+  console.log(`Fetching GTO for ${genomeID}...`);
+  try {
+    await spawnPromise('p3-gto', [genomeID, '-o', outDir]);
+  } catch (e) {
+    console.error('Error fetching GTO.', e);
+  }
+
+  console.log(`Creating .gbk file for ${genomeID}...`);
+  let gbkPath;
+  try {
+    gbkPath = `${outDir}/${genomeID}${suffix ? `.${suffix}` : ''}.gbk`;
+    await spawnPromise('rast-export-genome',
+      ['-i', `${outDir}/${genomeID}.gto`, '-o', gbkPath, 'genbank']);
+  } catch (e) {
+    console.error('Error exporting to GBK.', e);
+  }
+
+  return gbkPath;
+}
+
+
+async function getGenomeFastas({endpoint, genomeIDs, outDir, suffix} ) {
+  genomeIDs = Array.isArray(genomeIDs) ? genomeIDs : [genomeIDs];
+
+  let paths = [];
+
+  // for each id, fetch fasta
+  for (const id of genomeIDs) {
+    console.log(`Fetching genome: ${id}`)
+    try {
+      let url = `${endpoint || DEFAULT_ENDPOINT}/genome_sequence/?eq(genome_id,${id})&sort(-length)&limit(1000000000)`;
+      await axios.get(url, fastaOpts)
+        .then(res => {
+          let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `.fasta`;
+          console.log(`Writing ${path}...`);
+          res.data.pipe(fs.createWriteStream(path));
+          paths.push(path)
+          return;
+        })
+    } catch(err) {
+      console.error(
+        'Error fetching genome from Data API:',
+        'message' in err ? err.message : err
+      );
+      console.error('Ending.');
+      process.exit(1);
+    }
+  }
+
+  return paths;
+}
+
+
 module.exports = {
-  getFeatures,
-  getSequences
+  getGenomeFastas,
+  getFeatureMeta,
+  getContigMeta,
+  getGBKs
 }
 
