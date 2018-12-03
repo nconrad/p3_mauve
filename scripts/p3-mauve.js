@@ -40,13 +40,24 @@ if (require.main === module) {
     .option('-s, --suffix [value]', 'Suffix to append to sequence file names')
     .option('-n, --no-mauve', 'Just fetch data')
 
+    .option('--recipe', 'Use progressiveMauve or mauveAligner algorithm (defaults to progressiveMauve)')
+
     .option('--seed-weight [value]', 'Mauve option: ' +
       'Use the specified seed weight for calculating initial anchors')
+    .option('--max-gapped-aligner-length [value]', 'Mauve option: ' +
+      'Maximum number of base pairs to attempt aligning with the gapped aligner')
+    .option('--max-breakpoint-distance-scale [value]', 'Mauve option: ' +
+      'Set the maximum weight scaling by breakpoint distance.  Must be in [0, 1]. Defaults to 0.9')
+    .option('--conservation-distance-scale [value]', 'Mauve option: ' +
+      'Scale conservation distances by this amount.  Must be in [0, 1].  Defaults to 1')
+    .option('--weight [value]', 'Mauve option: ' +
+      'Minimum pairwise LCB score')
+    .option('--min-scaled-penalty [value]', 'Mauve option: ' +
+      'Minimum breakpoint penalty after scaling the penalty by expected divergence')
     .option('--hmm-p-go-homologous [value]', 'Mauve option: ' +
       'Probability of transitioning from the unrelated to the homologous state [0.0001]')
     .option('--hmm-p-go-unrelated [value]', 'Mauve option: ' +
       'Probability of transitioning from the homologous to the unrelated state [0.000001]')
-    .option('--recipe', 'Use progressiveMauve or mauveAligner algorithm (defaults to progressiveMauve)')
     .parse(process.argv)
 
   patricMauve(opts);
@@ -90,9 +101,14 @@ async function patricMauve(opts) {
 
   // mauve specific options
   let mauveOpts = {
+    'seed-weight': params.seedWeight,
+    'max-gapped-aligner-length': params.maxGappedAlignerLength,
+    'max-breakpoint-distance-scale': params.maxBreakpointDistanceScale,
+    'conservation-distance-scale': params.conservationDistanceScale,
+    'weight': params.weight,
+    'min-scaled-penalty': params.minScaledPenalty,
     'hmm-p-go-homologous': params.hmmPGoHomologous,
     'hmm-p-go-unrelated': params.hmmPGoUnrelated,
-    'seed-weight': params.seedWeight
   };
 
   console.log('Fetching genomes...')
