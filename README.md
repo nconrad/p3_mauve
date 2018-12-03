@@ -11,10 +11,9 @@ Takes JSON and runs Mauve with provided options.
 ## Installation
 
 ```
-cd genome_report
+cd p3_mauve
 npm install
 ```
-
 
 
 ## Usage

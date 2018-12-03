@@ -5,8 +5,12 @@
  *
  *  Ex:
  *
- *    ./p3-mauve.js -g 204722.5,224914.11,262698.4,359391.4 -o test-data/
- *    ./p3-mauve.js -g 520459.3,520461.7,568815.3 -t
+ *    ./p3-mauve.js -g 204722.5,224914.11,262698.4,359391.4 -o ../test-data/
+ *    ./p3-mauve.js -g 520459.3,520461.7,568815.3
+ *
+ *  With Auth:
+ *      export KB_AUTH_TOKEN="<auth_token>"
+ *      ./p3-mauve.js -g 1262932.43,1262932.44 -o ../test-data/
  *
  *  Author(s):
  *    nconrad
@@ -18,25 +22,14 @@
 const opts = require('commander');
 const fs = require('fs');
 const process = require('process');
-const axios = require('axios');
 const util = require('util');
 const { spawn } = require('child_process');
-const tmp = require('tmp-promise');
 const mauveParser = require('./mauve-parser');
+
+const utils = require('./utils');
 
 const readFile = util.promisify(fs.readFile);
 const writeFile = util.promisify(fs.writeFile);
-
-
-const DEFAULT_ENDPOINT = 'https://www.patricbrc.org/api/';
-
-const streamOpts = {
-  responseType: 'stream',
-  headers: {
-    'accept': 'application/dna+fasta',
-    'authorization': process.env.KB_AUTH_TOKEN || ''
-  }
-}
 
 if (require.main === module) {
   opts.option('-g, --genome-ids [value]', 'Genome IDs comma delimited')
@@ -44,15 +37,27 @@ if (require.main === module) {
     .option('--jfile [value]', 'Pass job params (json) as file')
     .option('--sstring [value]', 'Server config (json) as string')
     .option('-o, --output [value]', 'Where to save files/results')
-    .option('-t, --tmp-files', 'Use temp files for fastas')
+    .option('-s, --suffix [value]', 'Suffix to append to sequence file names')
+    .option('-n, --no-mauve', 'Just fetch data')
+
+    .option('--recipe', 'Use progressiveMauve or mauveAligner algorithm (defaults to progressiveMauve)')
 
     .option('--seed-weight [value]', 'Mauve option: ' +
       'Use the specified seed weight for calculating initial anchors')
+    .option('--max-gapped-aligner-length [value]', 'Mauve option: ' +
+      'Maximum number of base pairs to attempt aligning with the gapped aligner')
+    .option('--max-breakpoint-distance-scale [value]', 'Mauve option: ' +
+      'Set the maximum weight scaling by breakpoint distance.  Must be in [0, 1]. Defaults to 0.9')
+    .option('--conservation-distance-scale [value]', 'Mauve option: ' +
+      'Scale conservation distances by this amount.  Must be in [0, 1].  Defaults to 1')
+    .option('--weight [value]', 'Mauve option: ' +
+      'Minimum pairwise LCB score')
+    .option('--min-scaled-penalty [value]', 'Mauve option: ' +
+      'Minimum breakpoint penalty after scaling the penalty by expected divergence')
     .option('--hmm-p-go-homologous [value]', 'Mauve option: ' +
       'Probability of transitioning from the unrelated to the homologous state [0.0001]')
     .option('--hmm-p-go-unrelated [value]', 'Mauve option: ' +
       'Probability of transitioning from the homologous to the unrelated state [0.000001]')
-    .option('--recipe', 'Use progressiveMauve or mauveAligner algorithm (defaults to progressiveMauve)')
     .parse(process.argv)
 
   patricMauve(opts);
@@ -84,37 +89,41 @@ async function patricMauve(opts) {
   let endpoint;
   if (opts.sstring) {
     try {
-      let apiURL = JSON.parse(opts.sstring).data_api;
-      endpoint = `${apiURL}/genome_sequence/?sort(-length)&limit(1000000000)`;
+      endpoint = JSON.parse(opts.sstring).data_api;
     } catch(e) {
       console.log('Error parsing server config (--sstring).');
       process.exit(1);
     }
   }
 
-  let useTmpFiles = opts.tmpFiles,   // use system scratch space
-      outDir = opts.output;
-
+  let outDir = opts.output,
+      suffix = opts.suffix;
 
   // mauve specific options
   let mauveOpts = {
+    'seed-weight': params.seedWeight,
+    'max-gapped-aligner-length': params.maxGappedAlignerLength,
+    'max-breakpoint-distance-scale': params.maxBreakpointDistanceScale,
+    'conservation-distance-scale': params.conservationDistanceScale,
+    'weight': params.weight,
+    'min-scaled-penalty': params.minScaledPenalty,
     'hmm-p-go-homologous': params.hmmPGoHomologous,
     'hmm-p-go-unrelated': params.hmmPGoUnrelated,
-    'seed-weight': params.seedWeight
   };
 
   console.log('Fetching genomes...')
-  let fastaPaths = await getGenomes({
+  let paths = await utils.getGenomeFastas({
+    endpoint,
     genomeIDs,
-    useTmpFiles,
     outDir,
-    endpoint
+    suffix
   });
 
+  if (!opts.mauve) return;
+
   console.log('Running Mauve...')
-  let xmfaPath;
   try {
-    xmfaPath = await runMauve(params.recipe, fastaPaths, mauveOpts, outDir);
+    await runMauve(params.recipe, paths, mauveOpts, outDir);
   } catch (e) {
     console.error('Error running Mauve:', e.message);
     console.error('Ending.');
@@ -125,52 +134,15 @@ async function patricMauve(opts) {
 
 function validateParams(p) {
   if (p.recipe && !['progressiveMauve', 'mauveAligner'].includes(p.recipe)) {
-    console.error(`Invalid recipe: ${p.recipe}`);
+    console.error(`\nInvalid recipe: ${p.recipe}`);
     process.exit(1);
   }
-}
 
-
-async function getGenomes(params) {
-  let {genomeIDs, useTmpFiles, outDir, endpoint} = params;
-  genomeIDs = Array.isArray(genomeIDs) ? genomeIDs : [genomeIDs];
-
-  let paths = [];
-
-  // for each id, fetch fasta, store in tmp directory (unless useTmpFiles=false)
-  for (const id of genomeIDs) {
-    console.log(`Fetching genome: ${id}`)
-    try {
-      await axios.get(`${endpoint || DEFAULT_ENDPOINT}&eq(genome_id,${id})`, streamOpts)
-        .then(res => {
-
-          // if not using tmp files, just write to provided output directory
-          if (!useTmpFiles) {
-            let path = `${outDir}/${id}.fasta`;
-            console.log(`Writing ${path}...`);
-            res.data.pipe(fs.createWriteStream(path));
-            paths.push(path)
-            return;
-          }
-
-          // otherwise create tmp file in system tmpdir and stream to it
-          return tmp.file({postfix: `-${id}.fasta`}).then(function(obj) {
-            let path = obj.path;
-            console.log(`Writing ${path}...`);
-            res.data.pipe(fs.createWriteStream(path));
-            paths.push(path)
-          }).catch(e => {
-            throw e ;
-          })
-        })
-    } catch(error) {
-      console.error('Error fetching genome from Data API:', error.message);
-      console.error('Ending.');
-      process.exit(1);
-    }
+  if (p.genomeIds && !p.output) {
+    console.error(`\nMust specify output directory path.`);
+    opts.help();
+    process.exit(1);
   }
-
-  return paths;
 }
 
 
@@ -231,3 +203,5 @@ async function runMauve(recipe, paths, mauveOpts, outDir) {
 
   return xmfaPath;
 }
+
+
