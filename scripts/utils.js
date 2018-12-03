@@ -30,7 +30,7 @@ async function getFeatureMeta({endpoint, genomeIDs, outDir}) {
   for (const id of genomeIDs) {
     console.log(`Fetching genome: ${id}`)
     try {
-      let url = `${endpoint || DEFAULT_ENDPOINT}/genome_feature/?eq(genome_id,${id})&limit(1000000000)`;
+      let url = `${endpoint || DEFAULT_ENDPOINT}/genome_feature/?eq(genome_id,${id})&limit(25000)`;
       await axios.get(url, streamOpts)
         .then(res => {
           let path = `${outDir}/${id}-features.json`;
@@ -67,7 +67,7 @@ async function getContigMeta({endpoint, genomeIDs, outDir, suffix}) {
     console.log(`Fetching genome: ${id}`)
     try {
       let url = `${endpoint || DEFAULT_ENDPOINT}/genome_sequence/` +
-        `?eq(genome_id,${id})&select(${contigMetaList.join(',')})&sort(-length)&limit(1000000000)`;
+        `?eq(genome_id,${id})&select(${contigMetaList.join(',')})&sort(-length)&limit(25000)`;
       await axios.get(url, streamOpts)
         .then(res => {
           let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `-sequences.json`;
@@ -131,7 +131,9 @@ async function getGenomeFastas({endpoint, genomeIDs, outDir, suffix} ) {
   for (const id of genomeIDs) {
     console.log(`Fetching genome: ${id}`)
     try {
-      let url = `${endpoint || DEFAULT_ENDPOINT}/genome_sequence/?eq(genome_id,${id})&sort(-length)&limit(1000000000)`;
+      let url = `${endpoint || DEFAULT_ENDPOINT}/genome_sequence/?eq(genome_id,${id})` +
+        `&sort(-length,+sequence_id)&limit(25000)`;
+
       await axios.get(url, fastaOpts)
         .then(res => {
           let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `.fasta`;
