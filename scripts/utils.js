@@ -31,14 +31,9 @@ async function getFeatureMeta({endpoint, genomeIDs, outDir}) {
     console.log(`Fetching genome: ${id}`)
     try {
       let url = `${endpoint || DEFAULT_ENDPOINT}/genome_feature/?eq(genome_id,${id})&limit(25000)`;
-      await axios.get(url, streamOpts)
-        .then(res => {
-          let path = `${outDir}/${id}-features.json`;
-          console.log(`Writing ${path}...`);
-          res.data.pipe(fs.createWriteStream(path));
-          paths.push(path)
-          return;
-        })
+      let path = `${outDir}/${id}-features.json`;
+
+      await streamFile(url, path).then(path => { paths.push(path); })
     } catch(err) {
       console.error(
         'Error fetching features from Data API:',
@@ -68,14 +63,9 @@ async function getContigMeta({endpoint, genomeIDs, outDir, suffix}) {
     try {
       let url = `${endpoint || DEFAULT_ENDPOINT}/genome_sequence/` +
         `?eq(genome_id,${id})&select(${contigMetaList.join(',')})&sort(-length)&limit(25000)`;
-      await axios.get(url, streamOpts)
-        .then(res => {
-          let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `-sequences.json`;
-          console.log(`Writing ${path}...`);
-          res.data.pipe(fs.createWriteStream(path));
-          paths.push(path)
-          return;
-        })
+      let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `-sequences.json`;
+
+      await streamFile(url, path, () => { paths.push(path); });
     } catch(err) {
       console.error(
         'Error fetching genome from Data API:',
@@ -133,15 +123,9 @@ async function getGenomeFastas({endpoint, genomeIDs, outDir, suffix} ) {
     try {
       let url = `${endpoint || DEFAULT_ENDPOINT}/genome_sequence/?eq(genome_id,${id})` +
         `&sort(-length,+sequence_id)&limit(25000)`;
+      let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `.fasta`;
 
-      await axios.get(url, fastaOpts)
-        .then(res => {
-          let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `.fasta`;
-          console.log(`Writing ${path}...`);
-          res.data.pipe(fs.createWriteStream(path));
-          paths.push(path)
-          return;
-        })
+        await streamFile(url, path).then(path => { paths.push(path); })
     } catch(err) {
       console.error(
         'Error fetching genome from Data API:',
@@ -153,6 +137,20 @@ async function getGenomeFastas({endpoint, genomeIDs, outDir, suffix} ) {
   }
 
   return paths;
+}
+
+
+function streamFile(url, path,) {
+  return axios.get(url, fastaOpts)
+    .then(res => {
+      console.log(`Writing ${path}...`);
+      let stream = fs.createWriteStream(path);
+      res.data.pipe(stream);
+      return new Promise((resolve, reject) => {
+        stream.on('finish', () => { resolve(path) });
+        stream.on('error', reject);
+      });
+    });
 }
 
 
