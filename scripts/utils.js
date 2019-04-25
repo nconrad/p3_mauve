@@ -65,7 +65,7 @@ async function getContigMeta({endpoint, genomeIDs, outDir, suffix}) {
         `?eq(genome_id,${id})&select(${contigMetaList.join(',')})&sort(-length)&limit(25000)`;
       let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `-sequences.json`;
 
-      await streamFile(url, path, () => { paths.push(path); });
+      await streamFile(url, path).then(path => { paths.push(path); })
     } catch(err) {
       console.error(
         'Error fetching genome from Data API:',
@@ -125,7 +125,7 @@ async function getGenomeFastas({endpoint, genomeIDs, outDir, suffix} ) {
         `&sort(-length,+sequence_id)&limit(25000)`;
       let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `.fasta`;
 
-        await streamFile(url, path).then(path => { paths.push(path); })
+      await streamFile(url, path).then(path => { paths.push(path); })
     } catch(err) {
       console.error(
         'Error fetching genome from Data API:',
