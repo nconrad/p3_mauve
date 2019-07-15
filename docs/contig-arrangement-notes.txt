@@ -1,0 +1,5 @@
+wget ftp://ftp.patricbrc.org/genomes/696125.3/696125.3.PATRIC.features.tab &&
+wget ftp://ftp.patricbrc.org/genomes/1094552.3/1094552.3.PATRIC.features.tab &&
+wget ftp://ftp.patricbrc.org/genomes/360095.6/360095.6.PATRIC.features.tab &&
+wget ftp://ftp.patricbrc.org/genomes/1094551.3/1094551.3.PATRIC.features.tab &&
+wget ftp://ftp.patricbrc.org/genomes/685782.3/685782.3.PATRIC.features.tab

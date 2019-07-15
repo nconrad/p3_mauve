@@ -1,92 +1,54 @@
 
+/**
+ * Helpers related to Genome Alignment research/workflows
+ *
+ * Notes:
+ *  - This is not used in the PATRIC Genome Alignment service
+ *  - fasta/GBK stuff uses file streaming.
+ */
+
 const axios = require('axios');
 const fs = require('fs');
 const process = require('process');
 
-const DEFAULT_ENDPOINT = 'https://p3.theseed.org/services/data_api';
+const api = 'https://p3.theseed.org/services/data_api';
 
-const fastaOpts = {
-  responseType: 'stream',
-  headers: {
-    'accept': 'application/dna+fasta',
-    'authorization': process.env.KB_AUTH_TOKEN || ''
-  }
-}
+const featureSelect = [
+  'pgfam_id',
+  'patric_id', 'sequence_id', 'start', 'end',
+  'strand', 'annotation', 'feature_type',
+  'product', 'accession', 'refseq_locus_tag', 'gene'
+];
 
-const streamOpts = {
-  responseType: 'stream',
-  headers: {
-    'accept': 'application/json',
-    'authorization': process.env.KB_AUTH_TOKEN || ''
-  }
-}
+const contigSelect = [
+  'topology', 'gi', 'accession', 'length',
+  'sequence_id', 'gc_content', 'chromosome',
+  'sequence_type', 'chromosome', 'description'
+];
 
-async function getFeatureMeta({endpoint, genomeIDs, outDir}) {
+
+function getFeatures(genomeIDs) {
   genomeIDs = Array.isArray(genomeIDs) ? genomeIDs : [genomeIDs];
 
-  let paths = [];
+  let proms = genomeIDs.map(id => {
+      let url = `${api}/genome_feature/?eq(genome_id,${id})` +
+          `&select(${featureSelect})&eq(annotation,PATRIC)&ne(feature_type,source)&limit(25000)`;
+      return axios.get(url).then(res => res.data);
+  });
 
-  // for each id, fetch features to file
-  for (const id of genomeIDs) {
-    console.log(`Fetching genome: ${id}`)
-    try {
-      let url = `${endpoint || DEFAULT_ENDPOINT}/genome_feature/?eq(genome_id,${id})&limit(25000)`;
-      let path = `${outDir}/${id}-features.json`;
-
-      await streamFile(url, path).then(path => { paths.push(path); })
-    } catch(err) {
-      console.error(
-        'Error fetching features from Data API:',
-        'message' in err ? err.message : err
-      );
-      console.error('Ending.');
-      process.exit(1);
-    }
-  }
-
-  return paths;
+  return axios.all(proms);
 }
 
-const contigMetaList = [
-  "topology", "gi", "accession", "length",
-  "sequence_id", "gc_content", "chromosome", "owner",
-  "sequence_type", "chromosome", "description"
-]
-
-async function getContigMeta({endpoint, genomeIDs, outDir, suffix}) {
+function getContigs(genomeIDs) {
   genomeIDs = Array.isArray(genomeIDs) ? genomeIDs : [genomeIDs];
 
-  let paths = [];
+  let proms = genomeIDs.map(id => {
+      let url = `${api}/genome_sequence/?eq(genome_id,${id})` +
+          `&select(${contigSelect.join(',')})&sort(-length,+sequence_id)&limit(25000)`;
+      return axios.get(url).then(res => res.data);
+  });
 
-  for (const id of genomeIDs) {
-    console.log(`Fetching genome: ${id}`)
-    try {
-      let url = `${endpoint || DEFAULT_ENDPOINT}/genome_sequence/` +
-        `?eq(genome_id,${id})&select(${contigMetaList.join(',')})&sort(-length)&limit(25000)`;
-      let path = `${outDir}/${id}` + (suffix ? `.${suffix}` : '')  + `-sequences.json`;
-
-      await streamFile(url, path).then(path => { paths.push(path); })
-    } catch(err) {
-      console.error(
-        'Error fetching genome from Data API:',
-        'message' in err ? err.message : err
-      );
-      console.error('Ending.');
-      process.exit(1);
-    }
-  }
-
-  return paths;
-}
-
-
-async function getGBKs({genomeIDs, outDir, suffix}) {
-  let paths = [];
-  for (genomeID of genomeIDs) {
-    let path = await getGBK({genomeID, outDir, suffix});
-    paths.push(path);
-  }
-  return paths;
+  return axios.all(proms);
 }
 
 
@@ -139,8 +101,15 @@ async function getGenomeFastas({endpoint, genomeIDs, outDir, suffix} ) {
   return paths;
 }
 
+const fastaOpts = {
+  responseType: 'stream',
+  headers: {
+    'accept': 'application/dna+fasta',
+    'authorization': process.env.KB_AUTH_TOKEN || ''
+  }
+}
 
-function streamFile(url, path,) {
+function streamFile(url, path) {
   return axios.get(url, fastaOpts)
     .then(res => {
       console.log(`Writing ${path}...`);
@@ -156,8 +125,8 @@ function streamFile(url, path,) {
 
 module.exports = {
   getGenomeFastas,
-  getFeatureMeta,
-  getContigMeta,
-  getGBKs
+  getGBK,
+  getContigs,
+  getFeatures
 }
 

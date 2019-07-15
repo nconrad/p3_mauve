@@ -1,6 +1,6 @@
 # p3_mauve
 
-Takes JSON and runs Mauve with provided options.
+Takes Job Params (as JSON) and runs PATRIC Mauve.
 
 
 ## Requirements
@@ -17,7 +17,6 @@ npm install
 
 
 ## Usage
-
 
 ```
   Usage: p3-mauve [options]
@@ -38,6 +37,17 @@ p3-mauve \
     -o test-data/
 
  ```
+
+ where `jsfile.json` has format:
+
+
+```javascript
+{
+    "genome_ids": ["204722.5", "224914.11", "262698.4"],
+    "output_path": "/user@patricbrc.org/test/",
+    "output_file": "test-mauve"
+}
+```
 
 ## Contributing
 

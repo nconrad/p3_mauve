@@ -1,6 +1,12 @@
 /**
  * Helper for parsing xmfa files
  *
+ *  Ex:
+ *    node mauve-parser.js -i ../test-data/alignment.xmfa
+ *
+ *  Author(s):
+ *    nconrad
+ *
  */
 
 const xmfaParser  = require('./xmfa-parser');
